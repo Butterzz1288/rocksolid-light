@@ -28,11 +28,12 @@
     if($CONFIG['article_database'] == '1') {
       $database = $spooldir.'/articles-overview.db3';
       $articles_dbh = rslight_db_open($database);
-      $articles_query = $articles_dbh->prepare('SELECT * FROM overview WHERE msgid=:messageid AND newsgroup=:group');
-      $articles_query->execute(['messageid' => $id, 'group' => $group]);
+      $articles_query = $articles_dbh->prepare('SELECT * FROM overview WHERE msgid=:messageid');
+      $articles_query->execute(['messageid' => $id]);
       $found = 0;
       while ($row = $articles_query->fetch()) {
         $id = $row['number'];
+        $group = $row['newsgroup'];
         $found = 1;
         break;
       }
@@ -87,6 +88,12 @@ if(isset($frames_on) && $frames_on === true) {
   echo '<a href="'.$file_index.'" target='.$frame['menu'].'>'.basename(getcwd()).'</a> / ';
   echo '<a href="'.$file_thread.'?group='.rawurlencode($group).'" target='.$frame["content"].'>'.htmlspecialchars(group_display_name($group)).'</a> / '.$subject.'</h1>';
 
+if(!$message) {
+  echo "Article not found";
+  include "tail.inc";
+  exit(0);
+}
+ 
 if($message) {
   // load thread-data and get IDs of the actual subthread
   $thread=thread_load($group);

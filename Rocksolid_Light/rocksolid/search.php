@@ -306,11 +306,14 @@ function get_header_search($group, $terms) {
   GLOBAL $CONFIG, $config_name, $spooldir, $snippet_size;
   $terms = preg_replace('/\%/', '\%', $terms);
   $searchterms = "%".$terms."%";
-    if(isset($_POST['group']) && $_POST['searchpoint'] != 'Message-ID') {
+    if(isset($_POST['group']) && $_POST['searchpoint'] != 'msgid') {
       $grouplist[0] = $_POST['group'];
+    } elseif($_POST['searchpoint'] != 'msgid') {
+        $local_groupfile=$spooldir."/".$config_name."/local_groups.txt";
+        $grouplist = file($local_groupfile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
     } else {
-      $local_groupfile=$spooldir."/".$config_name."/local_groups.txt";
-      $grouplist = file($local_groupfile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        $local_groupfile=$spooldir."/spoolnews/groups.txt";
+        $grouplist = file($local_groupfile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
     }
     # Prepare search database
     $database = $spooldir.'/articles-overview.db3';

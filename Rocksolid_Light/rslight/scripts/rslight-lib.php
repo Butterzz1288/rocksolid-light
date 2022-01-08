@@ -59,9 +59,9 @@ set_time_limit(0);
         }
 	if ($command[0] == 'list') {
 	    if(isset($command[1])) {
-	        $msg = get_list($command[1]);
+	        $msg = get_list($command[1], $msgsock);
             } else {
-		$msg = get_list("active");
+		$msg = get_list("active", $msgsock);
             } 
             fwrite($msgsock, $msg, strlen($msg));
 	    continue;
@@ -86,6 +86,22 @@ set_time_limit(0);
 	    fwrite($msgsock, $msg, strlen($msg));     
 	    continue;
 	}
+		if ($command[0] == 'capabilities') {
+		  $msg = "101 Capability list:\r\n";
+		  $msg.= "VERSION 2\r\n";
+		  $msg.= "AUTHINFO USER\r\n";
+		  $msg.= "HDR\r\n";
+		  $msg.= "LIST ACTIVE HEADERS NEWSGROUPS OVERVIEW.FMT\r\n";
+	      if($auth_ok == '1') {
+			$msg.= "POST\r\n";
+		  }
+          $msg.= "OVER\r\n";
+          $msg.= "READER\r\n";
+          $msg.= ".\r\n";
+          fwrite($msgsock, $msg, strlen($msg));
+          continue;
+        }
+	
 	if ($command[0] == 'newgroups') {
             $msg = get_newgroups($command);
             fwrite($msgsock, $msg, strlen($msg));
@@ -182,12 +198,12 @@ set_time_limit(0);
             fwrite($msgsock, $msg, strlen($msg));
             continue;
         }	
-	if ($command[0] == 'xover') {
+	if (($command[0] == 'xover') || ($command[0] == 'over')) {
 	    $msg = get_xover($command[1], $msgsock);
 	    fwrite($msgsock, $msg, strlen($msg));
 	    continue;
 	}
-	if ($command[0] == 'xhdr') {
+	if (($command[0] == 'xhdr') || ($command[0] == 'hdr')) {
             $msg = get_xhdr($command[1], $command[2]);
             fwrite($msgsock, $msg, strlen($msg));
             continue;
@@ -498,18 +514,26 @@ function get_last($nntp_group) {
 }
 
 function get_xhdr($header, $articles) {
-    global $config_dir,$spooldir,$nntp_group,$workpath,$path;
+    global $config_dir,$spooldir,$nntp_group,$nntp_article,$workpath,$path;
     $tmpgroup=$nntp_group;
     $mid=false;
+// Use article pointer
+    if(!isset($articles) && is_numeric($nntp_article)) {
+      $articles = $nntp_article;
+    }    
 // By Message-ID
     if(!is_numeric($articles)) {
       $found = find_article_by_msgid($articles);
       $tmpgroup = $found['newsgroup'];
       $articles = $found['number'];
+      if($tmpgroup == '') {
+        $msg="430 No article with that message-id\r\n";
+        return $msg;
+      }
     }
-    if($tmpgroup == '') {
-      $msg="412 no newsgroup selected\r\n";
-      return $msg;
+    if(!isset($tmpgroup)) {
+        $msg="412 no newsgroup selected\r\n";
+        return $msg;
     }
     $thisgroup = $path."/".preg_replace('/\./', '/', $tmpgroup);
     $article_num = explode('-', $articles);
@@ -585,35 +609,54 @@ function get_title($mode) {
 
 function get_xover($articles, $msgsock) {
     global $nntp_group,$nntp_article,$workpath,$path;
-    if($nntp_group == '') {
-        $msg="412 no newsgroup selected\r\n";
-        return $msg;
-    }
 // Use article pointer
     if(!isset($articles) && is_numeric($nntp_article)) {
       $articles = $nntp_article;
+    }
+// By Message-ID
+    if(strpos($articles, "@") !== false) {
+      $found = find_article_by_msgid($articles);
+      $nntp_group = $found['newsgroup'];
+      $first = $found['number'];
+      $last = $first;
+      $this_id = $found['msgid'];
+      $articles = $found['number'];
+      if(!isset($articles)) {
+        $output="430 No article with that message-id\r\n";
+        return $output;
+      }
+      $output="224 Overview information follows for ".$this_id."\r\n";
+    }
+    if($nntp_group == '') {
+        $msg="412 no newsgroup selected\r\n";
+        return $msg;
     }
     if(!isset($articles)) {
 	$msg="420 no article(s) selected\r\n";
 	return $msg;
     }
     $overviewfile=$workpath.$nntp_group."-overview";
+  if(!isset($this_id)) {
     $article_num = explode('-', $articles);
     $first = $article_num[0];
-    if(isset($article_num[1]) && is_numeric($article_num[1]))
+    if(isset($article_num[1]) && is_numeric($article_num[1])) {
         $last = $article_num[1];
-    else {
-    if(strpos($articles, "-")) {
-      $ok_article = get_article_list($nntp_group);
-      sort($ok_article);
-      $last = $ok_article[key(array_slice($ok_article, -1, 1, true))];
-      if(!is_numeric($last))
-          $last = 0;
+        $output="224 Overview information follows for articles ".$first." through ".$last."\r\n";
     } else {
-      $last = $first;
-    }
+      if(strpos($articles, "-")) {
+        $ok_article = get_article_list($nntp_group);
+        sort($ok_article);
+        $last = $ok_article[key(array_slice($ok_article, -1, 1, true))];
+        if(!is_numeric($last)) {
+            $last = 0;
+        }
+        $output="224 Overview information follows for articles ".$first." through ".$last."\r\n";    
+      } else {
+        $last = $first;
+        $output="224 Overview information follows for ".$first."\r\n";
+      }
    }
-    $output="224 Overview information follows for articles ".$first." through ".$last."\r\n";
+  }
     fwrite($msgsock, $output, strlen($output));
     $overviewfp=fopen($overviewfile, 'r');
     while($overviewline=fgets($overviewfp)) {
@@ -819,6 +862,10 @@ function get_body($article, $nntp_group) {
 function get_listgroup($nntp_group, $msgsock) {
     global $spooldir,$path,$nntp_group,$groupconfig;
     $grouplist = file($groupconfig, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if($nntp_group == '') {
+      $msg="412 no newsgroup selected\r\n";
+      return $msg;
+    }
     $ok_group=false;
     $count=0;
     foreach($grouplist as $findgroup) {
@@ -865,7 +912,7 @@ function get_group($change_group) {
 	}
     }
     if($ok_group == false) {
-      $response = "411 No such group ".$change_group.";\r\n";
+      $response = "411 No such group ".$change_group."\r\n";
       return $response;
     }
     $nntp_group = $change_group;
@@ -932,26 +979,37 @@ function get_newgroups($mode) {
   }
 }
 
-function get_list($mode) {
+function get_list($mode, $msgsock) {
     global $path,$spooldir,$groupconfig;
     $grouplist = file($groupconfig, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
   $mode = strtolower($mode);
+  if($mode == "headers") {
+    $msg = "215 metadata items supported:\r\n";
+    $msg.= ":\r\n";
+    $msg.= ":lines\r\n";
+    $msg.= ":bytes\r\n";
+  }
   if($mode == "active") {  
     $msg = '215 list of newsgroups follows'."\r\n";
+    fwrite($msgsock, $msg, strlen($msg));
     foreach($grouplist as $findgroup) {
-	$name = preg_split("/( |\t)/", $findgroup, 2);
-	if($name[0][0] === ':')
+	  $name = preg_split("/( |\t)/", $findgroup, 2);
+	  if($name[0][0] === ':')
 	    continue;
-	$ok_article = get_article_list($findgroup);
-	sort($ok_article);
-	$last = $ok_article[key(array_slice($ok_article, -1, 1, true))];
-	$first = $ok_article[0];
-	if(!is_numeric($last))
+	  $ok_article = get_article_list($findgroup);
+	  sort($ok_article);
+	  $last = $ok_article[key(array_slice($ok_article, -1, 1, true))];
+	  $first = $ok_article[0];
+	  if(!is_numeric($last)) {
 	    $last = 0;
-	if(!is_numeric($first))
+	  }
+	  if(!is_numeric($first)) {
 	    $first = 0;
-        $msg.=$name[0]." ".$last." ".$first." y\r\n";
-    }
+	  }
+      $output=$name[0]." ".$last." ".$first." y\r\n";
+      fwrite($msgsock, $output, strlen($output));
+      }
+    return ".\r\n";
   }
   if($mode == "newsgroups") {
     $msg = '215 list of newsgroups and descriptions follows'."\r\n";
@@ -1142,7 +1200,7 @@ function get_article_list($thisgroup) {
   $database = $spooldir."/articles-overview.db3";
   $table = 'overview';
   $dbh = rslight_db_open($database, $table);
-  $stmt = $dbh->prepare("SELECT * FROM overview WHERE newsgroup=:thisgroup ORDER BY number");
+  $stmt = $dbh->prepare("SELECT * FROM $table WHERE newsgroup=:thisgroup ORDER BY number");
   $stmt->execute(['thisgroup' => $thisgroup]);
   $ok_article=array();
   while($found = $stmt->fetch()) {

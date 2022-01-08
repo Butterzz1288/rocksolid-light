@@ -814,15 +814,16 @@ function thread_format_lastmessage($c,$group='') {
   if($CONFIG['article_database'] == '1') {
     $database = $spooldir.'/'.$group.'-articles.db3';
     $table = 'articles';
-    $dbh = article_db_open($database, $table);
-    $stmt = $dbh->prepare("SELECT * FROM $table WHERE date=:date ORDER BY date DESC");
-    $stmt->bindParam(':date', $c->date_thread);
-    $stmt->execute();
-    if($found = $stmt->fetch()) {
-      $ovfound = 1;
-    };
-    $dbh = null;
-
+    if(is_file($database)) {
+      $dbh = article_db_open($database, $table);
+      $stmt = $dbh->prepare("SELECT * FROM $table WHERE date=:date ORDER BY date DESC");
+      $stmt->bindParam(':date', $c->date_thread);
+      $stmt->execute();
+      if($found = $stmt->fetch()) {
+        $ovfound = 1;
+      };
+      $dbh = null;
+    }
       $fromline = address_decode(headerDecode($found['name']),"nirgendwo");
           if (!isset($fromline[0]["host"])) $fromline[0]["host"]="";
           $name_from=$fromline[0]["mailbox"]."@".$fromline[0]["host"];
